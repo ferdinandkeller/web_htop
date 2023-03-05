@@ -77,9 +77,8 @@ let cpus_display = computed(() => {
 })
 
 function socket_connect() {
-  console.log('socket connection try')
   try {
-    let socket = new WebSocket('ws://localhost:3000/ws')
+    let socket = new WebSocket('ws://localhost:3133/ws')
 
     socket.onopen = () => {
     }
