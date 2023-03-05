@@ -129,8 +129,11 @@ async fn main() {
     // combine the routes
     let router = ws.or(ui);
 
+    // print link in the console
+    println!("Server running at http://localhost:3133");
+
     // start server
-    warp::serve(router).run(([127, 0, 0, 1], 3000)).await;
+    warp::serve(router).run(([127, 0, 0, 1], 3133)).await;
 }
 
 // handle new websocket connections
