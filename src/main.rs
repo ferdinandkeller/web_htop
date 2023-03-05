@@ -1,4 +1,5 @@
 use futures::{executor, future, stream::SplitSink, SinkExt, StreamExt};
+use include_dir::{include_dir, Dir};
 use serde_json::json;
 use std::{
     sync::{Arc, Mutex},
@@ -7,13 +8,19 @@ use std::{
 use sysinfo::{CpuExt, System, SystemExt};
 use tokio;
 use warp::{
+    path::FullPath,
     ws::{Message, WebSocket, Ws},
     Filter, Rejection, Reply,
 };
 
+// include the content of the ui/dist directory
+// this is the compiled frontend produced by vite
+static PROJECT_DIR: Dir = include_dir!("ui/dist");
+
 // create a type alias for the client vector
 type ClientVec = Arc<Mutex<Vec<SplitSink<WebSocket, Message>>>>;
 
+// make main function async but single threaded
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     // create a vector to store client websocket senders
@@ -63,14 +70,64 @@ async fn main() {
         }
     });
 
-    // create routes
-    let ui = warp::path!().and(warp::fs::dir("ui/dist/"));
+    // create the ui route
+    let ui = warp::path::full().map(|fullpath: FullPath| {
+        // find the path of the requested file by removing the leading slash
+        let mut path = &fullpath.as_str()[1..];
+
+        // if the path is empty, set it to index.html
+        if path == "" {
+            path = "index.html";
+        }
+
+        // get the requested file entry if it exists
+        // otherwise return a 404 response
+        let entry = match PROJECT_DIR.get_entry(path) {
+            Some(entry) => entry,
+            None => {
+                return warp::http::Response::builder()
+                    .status(404)
+                    .header("content-type", "text/text")
+                    .body(b"404 Not Found" as &[u8]);
+            }
+        };
+
+        match entry {
+            // if the entry is a file, return the file contents
+            include_dir::DirEntry::File(file) => {
+                // get the mime type of the file
+                let mime = match path.split(".").last() {
+                    Some("html") => "text/html",
+                    Some("js") => "text/javascript",
+                    Some("css") => "text/css",
+                    Some("ttf") => "font/ttf",
+                    _ => panic!("azd"),
+                };
+                // get the content of the file
+                let content = file.contents();
+                // return a reply
+                return warp::http::Response::builder()
+                    .header("content-type", mime)
+                    .body(content);
+            }
+
+            // if the entry is a directory, return a 404 response
+            _ => {
+                return warp::http::Response::builder()
+                    .status(404)
+                    .header("content-type", "text/text")
+                    .body(b"404 Not Found" as &[u8]);
+            }
+        }
+    });
+
+    // create the websocket route
     let ws = warp::path!("ws")
         .and(warp::ws())
         .and_then(move |ws: Ws| ws_handler(ws, clients.clone()));
 
-    // combine routes
-    let router = ui.or(ws);
+    // combine the routes
+    let router = ws.or(ui);
 
     // start server
     warp::serve(router).run(([127, 0, 0, 1], 3000)).await;
